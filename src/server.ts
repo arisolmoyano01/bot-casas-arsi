@@ -8,15 +8,6 @@ app.use(express.json());
 
 const direcciones = ["N", "S", "E", "O"];
 
-// Perfil opcional que consulta el árbitro
-app.get("/profile", (req, res) => {
-  res.json({
-    name: "Bot Casas Arsi",
-    colors: ["#6C63FF", "#A5A1FF", "#FFFFFF"]
-  });
-});
-
-// Sirve para comprobar que el bot está funcionando
 app.get("/", (req, res) => {
   res.json({
     status: "ok",
@@ -27,6 +18,13 @@ app.get("/", (req, res) => {
 app.get("/health", (req, res) => {
   res.json({
     status: "ok"
+  });
+});
+
+app.get("/profile", (req, res) => {
+  res.json({
+    name: "Bot Casas Arsi",
+    colors: ["#6C63FF", "#A5A1FF", "#FFFFFF"]
   });
 });
 
@@ -48,12 +46,18 @@ function isState(state) {
     return false;
   }
 
-  if (!Array.isArray(state.tablero) || state.tablero.length !== 10) {
+  if (
+    !Array.isArray(state.tablero) ||
+    state.tablero.length !== 10
+  ) {
     return false;
   }
 
   for (const fila of state.tablero) {
-    if (!Array.isArray(fila) || fila.length !== 10) {
+    if (
+      !Array.isArray(fila) ||
+      fila.length !== 10
+    ) {
       return false;
     }
 
@@ -85,7 +89,10 @@ function leerTablero(state) {
       const casilla = state.tablero[fila][columna];
 
       if (casilla === "N") {
-        casas.push({ fila, columna });
+        casas.push({
+          fila,
+          columna
+        });
       } else if (casilla !== "") {
         const pieza = {
           id: casilla,
@@ -109,7 +116,11 @@ function leerTablero(state) {
   };
 }
 
-function calcularDestino(pieza, direccion, dado) {
+function calcularDestino(
+  pieza,
+  direccion,
+  dado
+) {
   let fila = pieza.fila;
   let columna = pieza.columna;
 
@@ -143,28 +154,41 @@ function mismaPosicion(a, b) {
 }
 
 function distancia(a, b) {
-  const diferenciaFila = Math.abs(a.fila - b.fila);
-  const diferenciaColumna = Math.abs(a.columna - b.columna);
+  const diferenciaFila =
+    Math.abs(a.fila - b.fila);
 
-  const fila = Math.min(
+  const diferenciaColumna =
+    Math.abs(a.columna - b.columna);
+
+  const distanciaFila = Math.min(
     diferenciaFila,
     10 - diferenciaFila
   );
 
-  const columna = Math.min(
+  const distanciaColumna = Math.min(
     diferenciaColumna,
     10 - diferenciaColumna
   );
 
-  return fila + columna;
+  return (
+    distanciaFila +
+    distanciaColumna
+  );
 }
 
-function calcularPuntaje(destinos, casas) {
+function calcularPuntaje(
+  destinos,
+  casas
+) {
   let puntos = 0;
 
   for (const destino of destinos) {
-    const llegaACasa = casas.some(casa =>
-      mismaPosicion(destino, casa)
+    const llegaACasa = casas.some(
+      casa =>
+        mismaPosicion(
+          destino,
+          casa
+        )
     );
 
     if (llegaACasa) {
@@ -176,21 +200,28 @@ function calcularPuntaje(destinos, casas) {
     let preparadaParaProximoTurno = false;
 
     for (const casa of casas) {
-      const d = distancia(destino, casa);
+      const d = distancia(
+        destino,
+        casa
+      );
 
       if (d < menorDistancia) {
         menorDistancia = d;
       }
 
-      if (destino.fila === casa.fila) {
+      if (
+        destino.fila === casa.fila
+      ) {
         const diferencia = Math.abs(
-          destino.columna - casa.columna
+          destino.columna -
+          casa.columna
         );
 
-        const distanciaHorizontal = Math.min(
-          diferencia,
-          10 - diferencia
-        );
+        const distanciaHorizontal =
+          Math.min(
+            diferencia,
+            10 - diferencia
+          );
 
         if (
           distanciaHorizontal >= 1 &&
@@ -200,15 +231,20 @@ function calcularPuntaje(destinos, casas) {
         }
       }
 
-      if (destino.columna === casa.columna) {
+      if (
+        destino.columna ===
+        casa.columna
+      ) {
         const diferencia = Math.abs(
-          destino.fila - casa.fila
+          destino.fila -
+          casa.fila
         );
 
-        const distanciaVertical = Math.min(
-          diferencia,
-          10 - diferencia
-        );
+        const distanciaVertical =
+          Math.min(
+            diferencia,
+            10 - diferencia
+          );
 
         if (
           distanciaVertical >= 1 &&
@@ -223,7 +259,9 @@ function calcularPuntaje(destinos, casas) {
       puntos += 100;
     }
 
-    if (menorDistancia !== Infinity) {
+    if (
+      menorDistancia !== Infinity
+    ) {
       puntos -= menorDistancia;
     }
   }
@@ -251,11 +289,14 @@ function chooseMove(state) {
     movimientos,
     destinos
   ) {
-    if (indice === propias.length) {
-      const puntos = calcularPuntaje(
-        destinos,
-        casas
-      );
+    if (
+      indice === propias.length
+    ) {
+      const puntos =
+        calcularPuntaje(
+          destinos,
+          casas
+        );
 
       if (
         !encontroMovimiento ||
@@ -272,32 +313,49 @@ function chooseMove(state) {
       return;
     }
 
-    const pieza = propias[indice];
+    const pieza =
+      propias[indice];
 
-    for (const direccion of direcciones) {
-      const destino = calcularDestino(
-        pieza,
-        direccion,
-        state.dado
-      );
+    for (
+      const direccion
+      of direcciones
+    ) {
+      const destino =
+        calcularDestino(
+          pieza,
+          direccion,
+          state.dado
+        );
 
-      const hayRival = rivales.some(rival =>
-        mismaPosicion(destino, rival)
-      );
+      const hayRival =
+        rivales.some(
+          rival =>
+            mismaPosicion(
+              destino,
+              rival
+            )
+        );
 
       if (hayRival) {
         continue;
       }
 
-      const chocaConOtra = destinos.some(otro =>
-        mismaPosicion(destino, otro)
-      );
+      const chocaConOtra =
+        destinos.some(
+          otro =>
+            mismaPosicion(
+              destino,
+              otro
+            )
+        );
 
       if (chocaConOtra) {
         continue;
       }
 
-      movimientos[pieza.id] = direccion;
+      movimientos[pieza.id] =
+        direccion;
+
       destinos.push(destino);
 
       probar(
@@ -307,15 +365,22 @@ function chooseMove(state) {
       );
 
       destinos.pop();
-      delete movimientos[pieza.id];
+
+      delete movimientos[
+        pieza.id
+      ];
     }
   }
 
-  probar(0, {}, []);
+  probar(
+    0,
+    {},
+    []
+  );
 
   if (!encontroMovimiento) {
     throw new Error(
-      "No se encontró una combinación válida de movimientos."
+      "No se encontró movimiento válido."
     );
   }
 
@@ -328,18 +393,27 @@ app.post("/move", (req, res) => {
 
     if (!isState(state)) {
       return res.status(400).json({
-        error: "Estado de juego inválido."
+        error:
+          "Estado de juego inválido."
       });
     }
 
-    const movimiento = chooseMove(state);
+    const movimiento =
+      chooseMove(state);
 
-    return res.status(200).json(movimiento);
+    return res
+      .status(200)
+      .json(movimiento);
+
   } catch (error) {
-    console.error("Error procesando /move:", error);
+    console.error(
+      "Error en /move:",
+      error
+    );
 
     return res.status(500).json({
-      error: "Error interno del bot."
+      error:
+        "Error interno del bot."
     });
   }
 });
