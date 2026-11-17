@@ -1,44 +1,35 @@
 // @ts-nocheck
 
-import express from "express";
-
-const app = express();
-
-app.use(express.json());
+import { createServer } from "node:http";
 
 const direcciones = ["N", "S", "E", "O"];
 
-app.get("/", (req, res) => {
-  res.json({
-    status: "ok",
-    bot: "Bot Casas Arsi"
+function responder(res, status, data) {
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8"
   });
-});
 
-app.get("/health", (req, res) => {
-  res.json({
-    status: "ok"
-  });
-});
+  res.end(JSON.stringify(data));
+}
 
-app.get("/profile", (req, res) => {
-  res.json({
-    name: "Bot Casas Arsi",
-    colors: ["#6C63FF", "#A5A1FF", "#FFFFFF"]
-  });
-});
+async function leerBody(req) {
+  let data = "";
 
-function isState(state) {
-  if (!state || typeof state !== "object") {
-    return false;
+  for await (const chunk of req) {
+    data += chunk;
   }
+
+  return JSON.parse(data || "{}");
+}
+
+function estadoValido(state) {
+  if (!state || typeof state !== "object") return false;
 
   if (state.jugador !== "A" && state.jugador !== "B") {
     return false;
   }
 
   if (
-    typeof state.dado !== "number" ||
     !Number.isInteger(state.dado) ||
     state.dado < 1 ||
     state.dado > 3
@@ -53,30 +44,11 @@ function isState(state) {
     return false;
   }
 
-  for (const fila of state.tablero) {
-    if (
-      !Array.isArray(fila) ||
-      fila.length !== 10
-    ) {
-      return false;
-    }
-
-    for (const casilla of fila) {
-      if (typeof casilla !== "string") {
-        return false;
-      }
-
-      if (
-        casilla !== "" &&
-        casilla !== "N" &&
-        !/^[AB][1-9]\d*$/.test(casilla)
-      ) {
-        return false;
-      }
-    }
-  }
-
-  return true;
+  return state.tablero.every(
+    fila =>
+      Array.isArray(fila) &&
+      fila.length === 10
+  );
 }
 
 function leerTablero(state) {
@@ -86,21 +58,18 @@ function leerTablero(state) {
 
   for (let fila = 0; fila < 10; fila++) {
     for (let columna = 0; columna < 10; columna++) {
-      const casilla = state.tablero[fila][columna];
+      const valor = state.tablero[fila][columna];
 
-      if (casilla === "N") {
-        casas.push({
-          fila,
-          columna
-        });
-      } else if (casilla !== "") {
+      if (valor === "N") {
+        casas.push({ fila, columna });
+      } else if (valor !== "") {
         const pieza = {
-          id: casilla,
+          id: valor,
           fila,
           columna
         };
 
-        if (casilla.startsWith(state.jugador)) {
+        if (valor.startsWith(state.jugador)) {
           propias.push(pieza);
         } else {
           rivales.push(pieza);
@@ -109,18 +78,10 @@ function leerTablero(state) {
     }
   }
 
-  return {
-    propias,
-    rivales,
-    casas
-  };
+  return { propias, rivales, casas };
 }
 
-function calcularDestino(
-  pieza,
-  direccion,
-  dado
-) {
+function destino(pieza, direccion, dado) {
   let fila = pieza.fila;
   let columna = pieza.columna;
 
@@ -140,13 +101,10 @@ function calcularDestino(
     columna = (columna - dado + 10) % 10;
   }
 
-  return {
-    fila,
-    columna
-  };
+  return { fila, columna };
 }
 
-function mismaPosicion(a, b) {
+function iguales(a, b) {
   return (
     a.fila === b.fila &&
     a.columna === b.columna
@@ -154,158 +112,113 @@ function mismaPosicion(a, b) {
 }
 
 function distancia(a, b) {
-  const diferenciaFila =
-    Math.abs(a.fila - b.fila);
-
-  const diferenciaColumna =
-    Math.abs(a.columna - b.columna);
-
-  const distanciaFila = Math.min(
-    diferenciaFila,
-    10 - diferenciaFila
-  );
-
-  const distanciaColumna = Math.min(
-    diferenciaColumna,
-    10 - diferenciaColumna
-  );
+  const df = Math.abs(a.fila - b.fila);
+  const dc = Math.abs(a.columna - b.columna);
 
   return (
-    distanciaFila +
-    distanciaColumna
+    Math.min(df, 10 - df) +
+    Math.min(dc, 10 - dc)
   );
 }
 
-function calcularPuntaje(
-  destinos,
-  casas
-) {
-  let puntos = 0;
+function puntaje(destinos, casas) {
+  let total = 0;
 
-  for (const destino of destinos) {
-    const llegaACasa = casas.some(
-      casa =>
-        mismaPosicion(
-          destino,
-          casa
-        )
+  for (const pos of destinos) {
+    const captura = casas.some(casa =>
+      iguales(pos, casa)
     );
 
-    if (llegaACasa) {
-      puntos += 1000;
+    if (captura) {
+      total += 1000;
       continue;
     }
 
-    let menorDistancia = Infinity;
-    let preparadaParaProximoTurno = false;
+    let menor = Infinity;
+    let preparado = false;
 
     for (const casa of casas) {
-      const d = distancia(
-        destino,
-        casa
-      );
+      const d = distancia(pos, casa);
 
-      if (d < menorDistancia) {
-        menorDistancia = d;
+      if (d < menor) {
+        menor = d;
       }
 
-      if (
-        destino.fila === casa.fila
-      ) {
-        const diferencia = Math.abs(
-          destino.columna -
-          casa.columna
+      if (pos.fila === casa.fila) {
+        const dif = Math.abs(
+          pos.columna - casa.columna
         );
 
-        const distanciaHorizontal =
-          Math.min(
-            diferencia,
-            10 - diferencia
-          );
+        const horizontal = Math.min(
+          dif,
+          10 - dif
+        );
 
         if (
-          distanciaHorizontal >= 1 &&
-          distanciaHorizontal <= 3
+          horizontal >= 1 &&
+          horizontal <= 3
         ) {
-          preparadaParaProximoTurno = true;
+          preparado = true;
         }
       }
 
-      if (
-        destino.columna ===
-        casa.columna
-      ) {
-        const diferencia = Math.abs(
-          destino.fila -
-          casa.fila
+      if (pos.columna === casa.columna) {
+        const dif = Math.abs(
+          pos.fila - casa.fila
         );
 
-        const distanciaVertical =
-          Math.min(
-            diferencia,
-            10 - diferencia
-          );
+        const vertical = Math.min(
+          dif,
+          10 - dif
+        );
 
         if (
-          distanciaVertical >= 1 &&
-          distanciaVertical <= 3
+          vertical >= 1 &&
+          vertical <= 3
         ) {
-          preparadaParaProximoTurno = true;
+          preparado = true;
         }
       }
     }
 
-    if (preparadaParaProximoTurno) {
-      puntos += 100;
+    if (preparado) {
+      total += 100;
     }
 
-    if (
-      menorDistancia !== Infinity
-    ) {
-      puntos -= menorDistancia;
+    if (menor !== Infinity) {
+      total -= menor;
     }
   }
 
-  return puntos;
+  return total;
 }
 
-function chooseMove(state) {
+function elegirMovimiento(state) {
   const {
     propias,
     rivales,
     casas
   } = leerTablero(state);
 
-  if (propias.length === 0) {
-    return {};
-  }
-
-  let mejorMovimiento = {};
-  let mejorPuntaje = -Infinity;
-  let encontroMovimiento = false;
+  const mejor = {
+    movimiento: null,
+    puntos: -Infinity
+  };
 
   function probar(
     indice,
     movimientos,
     destinos
   ) {
-    if (
-      indice === propias.length
-    ) {
-      const puntos =
-        calcularPuntaje(
-          destinos,
-          casas
-        );
+    if (indice === propias.length) {
+      const puntos = puntaje(
+        destinos,
+        casas
+      );
 
-      if (
-        !encontroMovimiento ||
-        puntos > mejorPuntaje
-      ) {
-        encontroMovimiento = true;
-        mejorPuntaje = puntos;
-
-        mejorMovimiento = {
+      if (puntos > mejor.puntos) {
+        mejor.puntos = puntos;
+        mejor.movimiento = {
           ...movimientos
         };
       }
@@ -313,50 +226,33 @@ function chooseMove(state) {
       return;
     }
 
-    const pieza =
-      propias[indice];
+    const pieza = propias[indice];
 
-    for (
-      const direccion
-      of direcciones
-    ) {
-      const destino =
-        calcularDestino(
-          pieza,
-          direccion,
-          state.dado
-        );
+    for (const direccion of direcciones) {
+      const pos = destino(
+        pieza,
+        direccion,
+        state.dado
+      );
 
-      const hayRival =
-        rivales.some(
-          rival =>
-            mismaPosicion(
-              destino,
-              rival
-            )
-        );
+      const ocupaRival = rivales.some(
+        rival => iguales(pos, rival)
+      );
 
-      if (hayRival) {
+      if (ocupaRival) {
         continue;
       }
 
-      const chocaConOtra =
-        destinos.some(
-          otro =>
-            mismaPosicion(
-              destino,
-              otro
-            )
-        );
+      const repetido = destinos.some(
+        otro => iguales(pos, otro)
+      );
 
-      if (chocaConOtra) {
+      if (repetido) {
         continue;
       }
 
-      movimientos[pieza.id] =
-        direccion;
-
-      destinos.push(destino);
+      movimientos[pieza.id] = direccion;
+      destinos.push(pos);
 
       probar(
         indice + 1,
@@ -365,57 +261,107 @@ function chooseMove(state) {
       );
 
       destinos.pop();
-
-      delete movimientos[
-        pieza.id
-      ];
+      delete movimientos[pieza.id];
     }
   }
 
-  probar(
-    0,
-    {},
-    []
-  );
+  probar(0, {}, []);
 
-  if (!encontroMovimiento) {
+  if (!mejor.movimiento) {
     throw new Error(
-      "No se encontró movimiento válido."
+      "No hay movimiento válido"
     );
   }
 
-  return mejorMovimiento;
+  return mejor.movimiento;
 }
 
-app.post("/move", (req, res) => {
-  try {
-    const state = req.body;
+const server = createServer(
+  async (req, res) => {
+    try {
+      const url = new URL(
+        req.url || "/",
+        "http://localhost"
+      );
 
-    if (!isState(state)) {
-      return res.status(400).json({
-        error:
-          "Estado de juego inválido."
+      const path = url.pathname;
+
+      if (
+        req.method === "GET" &&
+        path === "/"
+      ) {
+        return responder(res, 200, {
+          status: "ok",
+          bot: "Bot Casas Arsi"
+        });
+      }
+
+      if (
+        req.method === "GET" &&
+        path === "/health"
+      ) {
+        return responder(res, 200, {
+          status: "ok"
+        });
+      }
+
+      if (
+        req.method === "GET" &&
+        path === "/profile"
+      ) {
+        return responder(res, 200, {
+          name: "Bot Casas Arsi",
+          colors: [
+            "#6C63FF",
+            "#A5A1FF",
+            "#FFFFFF"
+          ]
+        });
+      }
+
+      if (
+        req.method === "POST" &&
+        path === "/move"
+      ) {
+        const state =
+          await leerBody(req);
+
+        if (!estadoValido(state)) {
+          return responder(res, 400, {
+            error:
+              "Estado de juego inválido"
+          });
+        }
+
+        const movimiento =
+          elegirMovimiento(state);
+
+        return responder(
+          res,
+          200,
+          movimiento
+        );
+      }
+
+      return responder(res, 404, {
+        error: "Ruta no encontrada"
+      });
+
+    } catch (error) {
+      console.error(error);
+
+      return responder(res, 500, {
+        error: "Error interno del bot"
       });
     }
-
-    const movimiento =
-      chooseMove(state);
-
-    return res
-      .status(200)
-      .json(movimiento);
-
-  } catch (error) {
-    console.error(
-      "Error en /move:",
-      error
-    );
-
-    return res.status(500).json({
-      error:
-        "Error interno del bot."
-    });
   }
-});
+);
 
-export default app;
+const port =
+  Number(process.env.PORT) || 3000;
+
+server.listen(port, () => {
+  console.log(
+    `Bot escuchando en puerto ${port}`
+  );
+});
